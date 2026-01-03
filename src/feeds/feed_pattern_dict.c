@@ -41,7 +41,8 @@
 const int GENERIC_PLUGIN_VERSION = GENERIC_PLUGIN_VERSION_REQ;
 
 const int GENERIC_PLUGIN_OPTIONS = GENERIC_PLUGIN_OPTIONS_AUTOHEX
-                                 | GENERIC_PLUGIN_OPTIONS_ICONV;
+                                 | GENERIC_PLUGIN_OPTIONS_ICONV
+                                 | GENERIC_PLUGIN_OPTIONS_RULES;
 
 // Character set definitions
 static const u8 CHARSET_LOWER[]   = "abcdefghijklmnopqrstuvwxyz";
@@ -501,7 +502,16 @@ u64 global_keyspace (MAYBE_UNUSED generic_global_ctx_t *global_ctx, MAYBE_UNUSED
 
   // Calculate total keyspace
   ctx->mask_keyspace = calculate_mask_keyspace (ctx);
-  ctx->total_keyspace = ctx->word_count * ctx->mask_keyspace;
+
+  // Check for overflow before calculating total keyspace
+  if (ctx->mask_keyspace > 0 && ctx->word_count > UINT64_MAX / ctx->mask_keyspace)
+  {
+    ctx->total_keyspace = UINT64_MAX; // Overflow, use max value
+  }
+  else
+  {
+    ctx->total_keyspace = ctx->word_count * ctx->mask_keyspace;
+  }
 
   cache_generate_t cache_generate;
 
