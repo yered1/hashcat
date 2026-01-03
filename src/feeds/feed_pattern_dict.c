@@ -19,7 +19,15 @@
  *   ?a - all printable ASCII
  *   ?h - hex lowercase (0-9a-f)
  *   ?H - hex uppercase (0-9A-F)
+ *   ?b - binary (0x00-0xff)
+ *   ?1 - custom charset 1 (defined with -1 option)
+ *   ?2 - custom charset 2 (defined with -2 option)
+ *   ?3 - custom charset 3 (defined with -3 option)
+ *   ?4 - custom charset 4 (defined with -4 option)
  *   ?W - dictionary word placeholder (exactly one required)
+ *
+ * Custom Charset Example:
+ *   hashcat -a 8 ... feeds/feed_pattern_dict.so -1 '?l?d' '?1?1?W?s' wordlist.txt
  */
 
 #include "common.h"
@@ -54,6 +62,9 @@ static const u8 CHARSET_SPECIAL[] = " !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
 static const u8 CHARSET_HEX_LOW[] = "0123456789abcdef";
 static const u8 CHARSET_HEX_UP[]  = "0123456789ABCDEF";
 
+// Binary charset (0x00-0xff) - initialized at runtime
+static u8 CHARSET_BINARY[CS_BINARY_LEN];
+
 static void error_set (generic_global_ctx_t *global_ctx, const char *fmt, ...)
 {
   global_ctx->error = true;
@@ -75,6 +86,13 @@ static void init_charsets (pd_feed_global_t *ctx)
   memcpy (ctx->cs_hex_low, CHARSET_HEX_LOW, CS_HEX_LOW_LEN);
   memcpy (ctx->cs_hex_up,  CHARSET_HEX_UP,  CS_HEX_UP_LEN);
 
+  // Build binary charset (0x00-0xff)
+  for (int i = 0; i < CS_BINARY_LEN; i++)
+  {
+    CHARSET_BINARY[i] = (u8)i;
+  }
+  memcpy (ctx->cs_binary, CHARSET_BINARY, CS_BINARY_LEN);
+
   // Build "all" charset
   u32 offset = 0;
   memcpy (ctx->cs_all + offset, CHARSET_LOWER, CS_LOWER_LEN);
@@ -84,6 +102,129 @@ static void init_charsets (pd_feed_global_t *ctx)
   memcpy (ctx->cs_all + offset, CHARSET_DIGIT, CS_DIGIT_LEN);
   offset += CS_DIGIT_LEN;
   memcpy (ctx->cs_all + offset, CHARSET_SPECIAL, CS_SPECIAL_LEN);
+
+  // Initialize custom charsets as undefined
+  for (int i = 0; i < CUSTOM_CHARSET_COUNT; i++)
+  {
+    ctx->cs_custom_defined[i] = false;
+    ctx->cs_custom_len[i] = 0;
+  }
+}
+
+static int parse_custom_charset (generic_global_ctx_t *global_ctx, pd_feed_global_t *ctx, int cs_idx, const char *cs_def)
+{
+  if (cs_idx < 0 || cs_idx >= CUSTOM_CHARSET_COUNT)
+  {
+    error_set (global_ctx, "Invalid custom charset index: %d", cs_idx + 1);
+    return -1;
+  }
+
+  u8 *cs_buf = ctx->cs_custom[cs_idx];
+  u32 cs_len = 0;
+  size_t def_len = strlen (cs_def);
+  size_t i = 0;
+
+  while (i < def_len && cs_len < CS_CUSTOM_MAX)
+  {
+    if (cs_def[i] == '?')
+    {
+      if (i + 1 >= def_len)
+      {
+        error_set (global_ctx, "Invalid custom charset: '?' at end");
+        return -1;
+      }
+
+      char spec = cs_def[i + 1];
+      i += 2;
+
+      const u8 *src = NULL;
+      u32 src_len = 0;
+
+      switch (spec)
+      {
+        case 'l': src = CHARSET_LOWER;   src_len = CS_LOWER_LEN;   break;
+        case 'u': src = CHARSET_UPPER;   src_len = CS_UPPER_LEN;   break;
+        case 'd': src = CHARSET_DIGIT;   src_len = CS_DIGIT_LEN;   break;
+        case 's': src = CHARSET_SPECIAL; src_len = CS_SPECIAL_LEN; break;
+        case 'h': src = CHARSET_HEX_LOW; src_len = CS_HEX_LOW_LEN; break;
+        case 'H': src = CHARSET_HEX_UP;  src_len = CS_HEX_UP_LEN;  break;
+        case 'b': src = CHARSET_BINARY;  src_len = CS_BINARY_LEN;  break;
+        case 'a':
+          // Add all printable
+          if (cs_len + CS_LOWER_LEN <= CS_CUSTOM_MAX)
+          {
+            memcpy (cs_buf + cs_len, CHARSET_LOWER, CS_LOWER_LEN);
+            cs_len += CS_LOWER_LEN;
+          }
+          if (cs_len + CS_UPPER_LEN <= CS_CUSTOM_MAX)
+          {
+            memcpy (cs_buf + cs_len, CHARSET_UPPER, CS_UPPER_LEN);
+            cs_len += CS_UPPER_LEN;
+          }
+          if (cs_len + CS_DIGIT_LEN <= CS_CUSTOM_MAX)
+          {
+            memcpy (cs_buf + cs_len, CHARSET_DIGIT, CS_DIGIT_LEN);
+            cs_len += CS_DIGIT_LEN;
+          }
+          if (cs_len + CS_SPECIAL_LEN <= CS_CUSTOM_MAX)
+          {
+            memcpy (cs_buf + cs_len, CHARSET_SPECIAL, CS_SPECIAL_LEN);
+            cs_len += CS_SPECIAL_LEN;
+          }
+          continue;
+
+        case '1': case '2': case '3': case '4':
+        {
+          int ref_idx = spec - '1';
+          if (!ctx->cs_custom_defined[ref_idx])
+          {
+            error_set (global_ctx, "Custom charset ?%c referenced before definition", spec);
+            return -1;
+          }
+          src = ctx->cs_custom[ref_idx];
+          src_len = ctx->cs_custom_len[ref_idx];
+          break;
+        }
+
+        case '?':
+          // Literal ?
+          if (cs_len < CS_CUSTOM_MAX)
+          {
+            cs_buf[cs_len++] = '?';
+          }
+          continue;
+
+        default:
+          error_set (global_ctx, "Invalid charset specifier in custom charset: ?%c", spec);
+          return -1;
+      }
+
+      // Copy charset
+      if (src && src_len > 0)
+      {
+        u32 copy_len = (cs_len + src_len <= CS_CUSTOM_MAX) ? src_len : (CS_CUSTOM_MAX - cs_len);
+        memcpy (cs_buf + cs_len, src, copy_len);
+        cs_len += copy_len;
+      }
+    }
+    else
+    {
+      // Literal character
+      cs_buf[cs_len++] = (u8)cs_def[i];
+      i++;
+    }
+  }
+
+  if (cs_len == 0)
+  {
+    error_set (global_ctx, "Custom charset %d is empty", cs_idx + 1);
+    return -1;
+  }
+
+  ctx->cs_custom_len[cs_idx] = cs_len;
+  ctx->cs_custom_defined[cs_idx] = true;
+
+  return 0;
 }
 
 static int parse_pattern (generic_global_ctx_t *global_ctx, pd_feed_global_t *ctx, const char *pattern)
@@ -160,6 +301,56 @@ static int parse_pattern (generic_global_ctx_t *global_ctx, pd_feed_global_t *ct
           pos->type = POS_HEX_UP;
           pos->charset = ctx->cs_hex_up;
           pos->charset_len = CS_HEX_UP_LEN;
+          break;
+
+        case 'b':
+          pos->type = POS_BINARY;
+          pos->charset = ctx->cs_binary;
+          pos->charset_len = CS_BINARY_LEN;
+          break;
+
+        case '1':
+          if (!ctx->cs_custom_defined[0])
+          {
+            error_set (global_ctx, "Custom charset ?1 not defined. Use -1 option.");
+            return -1;
+          }
+          pos->type = POS_CUSTOM_1;
+          pos->charset = ctx->cs_custom[0];
+          pos->charset_len = ctx->cs_custom_len[0];
+          break;
+
+        case '2':
+          if (!ctx->cs_custom_defined[1])
+          {
+            error_set (global_ctx, "Custom charset ?2 not defined. Use -2 option.");
+            return -1;
+          }
+          pos->type = POS_CUSTOM_2;
+          pos->charset = ctx->cs_custom[1];
+          pos->charset_len = ctx->cs_custom_len[1];
+          break;
+
+        case '3':
+          if (!ctx->cs_custom_defined[2])
+          {
+            error_set (global_ctx, "Custom charset ?3 not defined. Use -3 option.");
+            return -1;
+          }
+          pos->type = POS_CUSTOM_3;
+          pos->charset = ctx->cs_custom[2];
+          pos->charset_len = ctx->cs_custom_len[2];
+          break;
+
+        case '4':
+          if (!ctx->cs_custom_defined[3])
+          {
+            error_set (global_ctx, "Custom charset ?4 not defined. Use -4 option.");
+            return -1;
+          }
+          pos->type = POS_CUSTOM_4;
+          pos->charset = ctx->cs_custom[3];
+          pos->charset_len = ctx->cs_custom_len[3];
           break;
 
         case 'W':
@@ -441,21 +632,62 @@ bool global_init (MAYBE_UNUSED generic_global_ctx_t *global_ctx, MAYBE_UNUSED ge
   memset (ctx, 0, sizeof (pd_feed_global_t));
   global_ctx->gbldata = ctx;
 
-  // Check arguments: we need at least 3 (plugin_path, pattern, wordlist)
-  if (global_ctx->workc < 3)
+  // Initialize character sets first (needed for parsing custom charsets)
+  init_charsets (ctx);
+
+  // Parse arguments: plugin_path [-1 cs] [-2 cs] [-3 cs] [-4 cs] <pattern> <wordlist>
+  // workv[0] = plugin path
+  // Then optional -1/-2/-3/-4 with their values
+  // Then pattern and wordlist
+
+  int arg_idx = 1;
+  int workc = global_ctx->workc;
+  char **workv = global_ctx->workv;
+
+  // Parse optional custom charset definitions
+  while (arg_idx < workc)
   {
-    error_set (global_ctx, "Usage: feeds/feed_pattern_dict.so <pattern> <wordlist>\n"
-               "Pattern placeholders: ?l (lower) ?u (upper) ?d (digit) ?s (special) ?a (all) ?h (hex) ?H (HEX) ?W (word)");
+    if (workv[arg_idx][0] == '-' && workv[arg_idx][1] >= '1' && workv[arg_idx][1] <= '4' && workv[arg_idx][2] == '\0')
+    {
+      int cs_idx = workv[arg_idx][1] - '1';
+
+      if (arg_idx + 1 >= workc)
+      {
+        error_set (global_ctx, "Missing value for %s option", workv[arg_idx]);
+        hcfree (ctx);
+        global_ctx->gbldata = NULL;
+        return false;
+      }
+
+      if (parse_custom_charset (global_ctx, ctx, cs_idx, workv[arg_idx + 1]) == -1)
+      {
+        hcfree (ctx);
+        global_ctx->gbldata = NULL;
+        return false;
+      }
+
+      arg_idx += 2;
+    }
+    else
+    {
+      // Not an option, must be pattern
+      break;
+    }
+  }
+
+  // Now we need pattern and wordlist
+  if (arg_idx + 2 > workc)
+  {
+    error_set (global_ctx, "Usage: feeds/feed_pattern_dict.so [-1 cs] [-2 cs] [-3 cs] [-4 cs] <pattern> <wordlist>\n"
+               "Placeholders: ?l ?u ?d ?s ?a ?h ?H ?b ?1 ?2 ?3 ?4 ?W\n"
+               "Custom charsets: -1 '?l?d' defines ?1 as lowercase+digits");
     hcfree (ctx);
     global_ctx->gbldata = NULL;
     return false;
   }
 
-  ctx->pattern  = global_ctx->workv[1];
-  ctx->wordlist = global_ctx->workv[2];
-
-  // Initialize character sets
-  init_charsets (ctx);
+  ctx->pattern  = workv[arg_idx];
+  ctx->wordlist = workv[arg_idx + 1];
 
   // Parse the pattern
   if (parse_pattern (global_ctx, ctx, ctx->pattern) == -1)

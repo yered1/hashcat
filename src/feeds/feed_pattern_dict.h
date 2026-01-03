@@ -14,6 +14,11 @@
  *   ?a - all printable ASCII (?l?u?d?s)
  *   ?h - hex lowercase (0-9a-f)
  *   ?H - hex uppercase (0-9A-F)
+ *   ?b - binary (0x00-0xff)
+ *   ?1 - custom charset 1 (defined with -1 option)
+ *   ?2 - custom charset 2 (defined with -2 option)
+ *   ?3 - custom charset 3 (defined with -3 option)
+ *   ?4 - custom charset 4 (defined with -4 option)
  *   ?W - dictionary word placeholder (required, exactly one)
  *
  * Examples:
@@ -40,20 +45,32 @@
 #define CS_SPECIAL_LEN 33
 #define CS_HEX_LOW_LEN 16
 #define CS_HEX_UP_LEN  16
+#define CS_BINARY_LEN  256
 #define CS_ALL_LEN     (CS_LOWER_LEN + CS_UPPER_LEN + CS_DIGIT_LEN + CS_SPECIAL_LEN)
+
+// Maximum size for custom charsets (can combine multiple built-in sets)
+#define CS_CUSTOM_MAX  256
+
+// Number of custom charsets supported
+#define CUSTOM_CHARSET_COUNT 4
 
 // Pattern position types
 typedef enum pattern_pos_type
 {
-  POS_LOWER   = 0,  // ?l
-  POS_UPPER   = 1,  // ?u
-  POS_DIGIT   = 2,  // ?d
-  POS_SPECIAL = 3,  // ?s
-  POS_ALL     = 4,  // ?a
-  POS_HEX_LOW = 5,  // ?h - hex lowercase
-  POS_HEX_UP  = 6,  // ?H - hex uppercase
-  POS_WORD    = 7,  // ?W - the dictionary word
-  POS_LITERAL = 8,  // literal character
+  POS_LOWER    = 0,   // ?l
+  POS_UPPER    = 1,   // ?u
+  POS_DIGIT    = 2,   // ?d
+  POS_SPECIAL  = 3,   // ?s
+  POS_ALL      = 4,   // ?a
+  POS_HEX_LOW  = 5,   // ?h - hex lowercase
+  POS_HEX_UP   = 6,   // ?H - hex uppercase
+  POS_BINARY   = 7,   // ?b - binary (0x00-0xff)
+  POS_CUSTOM_1 = 8,   // ?1 - custom charset 1
+  POS_CUSTOM_2 = 9,   // ?2 - custom charset 2
+  POS_CUSTOM_3 = 10,  // ?3 - custom charset 3
+  POS_CUSTOM_4 = 11,  // ?4 - custom charset 4
+  POS_WORD     = 12,  // ?W - the dictionary word
+  POS_LITERAL  = 13,  // literal character
 
 } pattern_pos_type_t;
 
@@ -87,7 +104,13 @@ typedef struct pd_feed_global
   u8 cs_special[CS_SPECIAL_LEN];
   u8 cs_hex_low[CS_HEX_LOW_LEN];
   u8 cs_hex_up[CS_HEX_UP_LEN];
+  u8 cs_binary[CS_BINARY_LEN];
   u8 cs_all[CS_ALL_LEN];
+
+  // Custom charsets (?1, ?2, ?3, ?4)
+  u8  cs_custom[CUSTOM_CHARSET_COUNT][CS_CUSTOM_MAX];
+  u32 cs_custom_len[CUSTOM_CHARSET_COUNT];
+  bool cs_custom_defined[CUSTOM_CHARSET_COUNT];
 
   // Wordlist data
   u64  word_count;         // number of words in dictionary
