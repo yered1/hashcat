@@ -17,6 +17,8 @@
  *   ?d - digit (0-9)
  *   ?s - special characters
  *   ?a - all printable ASCII
+ *   ?h - hex lowercase (0-9a-f)
+ *   ?H - hex uppercase (0-9A-F)
  *   ?W - dictionary word placeholder (exactly one required)
  */
 
@@ -250,6 +252,13 @@ static int build_word_index (generic_global_ctx_t *global_ctx, pd_feed_global_t 
   if (ctx->word_count == 0)
   {
     error_set (global_ctx, "Wordlist is empty");
+    return -1;
+  }
+
+  // Check for allocation size overflow
+  if (ctx->word_count > SIZE_MAX / sizeof (u64))
+  {
+    error_set (global_ctx, "Wordlist too large: %llu words", (unsigned long long)ctx->word_count);
     return -1;
   }
 
