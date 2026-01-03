@@ -48,6 +48,8 @@ static const u8 CHARSET_LOWER[]   = "abcdefghijklmnopqrstuvwxyz";
 static const u8 CHARSET_UPPER[]   = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 static const u8 CHARSET_DIGIT[]   = "0123456789";
 static const u8 CHARSET_SPECIAL[] = " !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
+static const u8 CHARSET_HEX_LOW[] = "0123456789abcdef";
+static const u8 CHARSET_HEX_UP[]  = "0123456789ABCDEF";
 
 static void error_set (generic_global_ctx_t *global_ctx, const char *fmt, ...)
 {
@@ -67,6 +69,8 @@ static void init_charsets (pd_feed_global_t *ctx)
   memcpy (ctx->cs_upper,   CHARSET_UPPER,   CS_UPPER_LEN);
   memcpy (ctx->cs_digit,   CHARSET_DIGIT,   CS_DIGIT_LEN);
   memcpy (ctx->cs_special, CHARSET_SPECIAL, CS_SPECIAL_LEN);
+  memcpy (ctx->cs_hex_low, CHARSET_HEX_LOW, CS_HEX_LOW_LEN);
+  memcpy (ctx->cs_hex_up,  CHARSET_HEX_UP,  CS_HEX_UP_LEN);
 
   // Build "all" charset
   u32 offset = 0;
@@ -143,6 +147,18 @@ static int parse_pattern (generic_global_ctx_t *global_ctx, pd_feed_global_t *ct
           pos->charset_len = CS_ALL_LEN;
           break;
 
+        case 'h':
+          pos->type = POS_HEX_LOW;
+          pos->charset = ctx->cs_hex_low;
+          pos->charset_len = CS_HEX_LOW_LEN;
+          break;
+
+        case 'H':
+          pos->type = POS_HEX_UP;
+          pos->charset = ctx->cs_hex_up;
+          pos->charset_len = CS_HEX_UP_LEN;
+          break;
+
         case 'W':
           if (found_word)
           {
@@ -204,7 +220,7 @@ static int parse_pattern (generic_global_ctx_t *global_ctx, pd_feed_global_t *ct
   return 0;
 }
 
-static u64 count_words (pd_feed_global_t *ctx, const u8 *data, size_t data_len)
+static u64 count_words (const u8 *data, size_t data_len)
 {
   u64 count = 0;
 
@@ -228,7 +244,7 @@ static u64 count_words (pd_feed_global_t *ctx, const u8 *data, size_t data_len)
 static int build_word_index (generic_global_ctx_t *global_ctx, pd_feed_global_t *ctx, const u8 *data, size_t data_len)
 {
   // First pass: count words
-  ctx->word_count = count_words (ctx, data, data_len);
+  ctx->word_count = count_words (data, data_len);
 
   if (ctx->word_count == 0)
   {
@@ -238,11 +254,20 @@ static int build_word_index (generic_global_ctx_t *global_ctx, pd_feed_global_t 
 
   // Allocate word index
   ctx->word_offsets = (u64 *)hcmalloc (ctx->word_count * sizeof (u64));
+
+  if (ctx->word_offsets == NULL)
+  {
+    error_set (global_ctx, "Failed to allocate word offsets");
+    return -1;
+  }
+
   ctx->word_lengths = (u32 *)hcmalloc (ctx->word_count * sizeof (u32));
 
-  if (ctx->word_offsets == NULL || ctx->word_lengths == NULL)
+  if (ctx->word_lengths == NULL)
   {
-    error_set (global_ctx, "Failed to allocate word index");
+    hcfree (ctx->word_offsets);
+    ctx->word_offsets = NULL;
+    error_set (global_ctx, "Failed to allocate word lengths");
     return -1;
   }
 
@@ -295,7 +320,15 @@ static u64 calculate_mask_keyspace (pd_feed_global_t *ctx)
   {
     if (ctx->positions[i].type != POS_WORD)
     {
-      keyspace *= ctx->positions[i].charset_len;
+      u64 cs_len = ctx->positions[i].charset_len;
+
+      // Check for overflow before multiplying
+      if (keyspace > 0 && cs_len > UINT64_MAX / keyspace)
+      {
+        return UINT64_MAX; // Overflow, return max value
+      }
+
+      keyspace *= cs_len;
     }
   }
 
@@ -506,6 +539,8 @@ bool thread_init (MAYBE_UNUSED generic_global_ctx_t *global_ctx, MAYBE_UNUSED ge
   if (hc_fopen_raw (&tctx->hcfile, ctx->wordlist, "rb") == false)
   {
     error_set (global_ctx, "%s: %s", ctx->wordlist, strerror (errno));
+    hcfree (tctx);
+    thread_ctx->thrdata = NULL;
     return false;
   }
 
@@ -514,12 +549,18 @@ bool thread_init (MAYBE_UNUSED generic_global_ctx_t *global_ctx, MAYBE_UNUSED ge
   if (hc_fstat (&tctx->hcfile, &s) == -1)
   {
     error_set (global_ctx, "%s: %s", ctx->wordlist, strerror (errno));
+    hc_fclose (&tctx->hcfile);
+    hcfree (tctx);
+    thread_ctx->thrdata = NULL;
     return false;
   }
 
   if (s.st_size == 0)
   {
     error_set (global_ctx, "%s: empty file", ctx->wordlist);
+    hc_fclose (&tctx->hcfile);
+    hcfree (tctx);
+    thread_ctx->thrdata = NULL;
     return false;
   }
 
@@ -531,6 +572,9 @@ bool thread_init (MAYBE_UNUSED generic_global_ctx_t *global_ctx, MAYBE_UNUSED ge
   if (fd_mem == MAP_FAILED)
   {
     error_set (global_ctx, "%s: mmap failed", ctx->wordlist);
+    hc_fclose (&tctx->hcfile);
+    hcfree (tctx);
+    thread_ctx->thrdata = NULL;
     return false;
   }
 

@@ -12,12 +12,15 @@
  *   ?d - digit (0-9)
  *   ?s - special characters (!@#$%^&*...)
  *   ?a - all printable ASCII (?l?u?d?s)
+ *   ?h - hex lowercase (0-9a-f)
+ *   ?H - hex uppercase (0-9A-F)
  *   ?W - dictionary word placeholder (required, exactly one)
  *
  * Examples:
  *   ?d?d?W?s      -> 00word! 01word@ ... 99word~
  *   ?l?W?d?d      -> aword00 aword01 ... zword99
  *   ?u?u?W?d?d?s  -> AAword00! AAword00@ ... ZZword99~
+ *   ?h?h?W        -> 00word 01word ... ffword
  */
 
 #ifndef FEED_PATTERN_DICT_H
@@ -31,11 +34,13 @@
 #define PATTERN_MAX_POSITIONS 32
 
 // Character set definitions matching hashcat's mask system
-#define CS_LOWER_LEN  26
-#define CS_UPPER_LEN  26
-#define CS_DIGIT_LEN  10
+#define CS_LOWER_LEN   26
+#define CS_UPPER_LEN   26
+#define CS_DIGIT_LEN   10
 #define CS_SPECIAL_LEN 33
-#define CS_ALL_LEN    (CS_LOWER_LEN + CS_UPPER_LEN + CS_DIGIT_LEN + CS_SPECIAL_LEN)
+#define CS_HEX_LOW_LEN 16
+#define CS_HEX_UP_LEN  16
+#define CS_ALL_LEN     (CS_LOWER_LEN + CS_UPPER_LEN + CS_DIGIT_LEN + CS_SPECIAL_LEN)
 
 // Pattern position types
 typedef enum pattern_pos_type
@@ -45,8 +50,10 @@ typedef enum pattern_pos_type
   POS_DIGIT   = 2,  // ?d
   POS_SPECIAL = 3,  // ?s
   POS_ALL     = 4,  // ?a
-  POS_WORD    = 5,  // ?W - the dictionary word
-  POS_LITERAL = 6,  // literal character
+  POS_HEX_LOW = 5,  // ?h - hex lowercase
+  POS_HEX_UP  = 6,  // ?H - hex uppercase
+  POS_WORD    = 7,  // ?W - the dictionary word
+  POS_LITERAL = 8,  // literal character
 
 } pattern_pos_type_t;
 
@@ -78,6 +85,8 @@ typedef struct pd_feed_global
   u8 cs_upper[CS_UPPER_LEN];
   u8 cs_digit[CS_DIGIT_LEN];
   u8 cs_special[CS_SPECIAL_LEN];
+  u8 cs_hex_low[CS_HEX_LOW_LEN];
+  u8 cs_hex_up[CS_HEX_UP_LEN];
   u8 cs_all[CS_ALL_LEN];
 
   // Wordlist data

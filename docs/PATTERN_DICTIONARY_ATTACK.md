@@ -47,6 +47,8 @@ hashcat -a 8 -m <hash_type> <hash_file> feeds/feed_pattern_dict.so '<pattern>' <
 | `?d` | Digits | 0-9 (10 chars) |
 | `?s` | Special characters | ` !"#$%&'()*+,-./:;<=>?@[\]^_\`{|}~` (33 chars) |
 | `?a` | All printable ASCII | ?l + ?u + ?d + ?s (95 chars) |
+| `?h` | Hex lowercase | 0-9a-f (16 chars) |
+| `?H` | Hex uppercase | 0-9A-F (16 chars) |
 | `?W` | **Dictionary word** | Words from wordlist |
 | `??` | Literal `?` | Single ? character |
 
