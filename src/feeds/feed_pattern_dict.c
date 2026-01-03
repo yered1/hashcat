@@ -435,7 +435,9 @@ bool global_init (MAYBE_UNUSED generic_global_ctx_t *global_ctx, MAYBE_UNUSED ge
   if (global_ctx->workc < 3)
   {
     error_set (global_ctx, "Usage: feeds/feed_pattern_dict.so <pattern> <wordlist>\n"
-               "Pattern placeholders: ?l (lower) ?u (upper) ?d (digit) ?s (special) ?a (all) ?W (word)");
+               "Pattern placeholders: ?l (lower) ?u (upper) ?d (digit) ?s (special) ?a (all) ?h (hex) ?H (HEX) ?W (word)");
+    hcfree (ctx);
+    global_ctx->gbldata = NULL;
     return false;
   }
 
@@ -448,12 +450,9 @@ bool global_init (MAYBE_UNUSED generic_global_ctx_t *global_ctx, MAYBE_UNUSED ge
   // Parse the pattern
   if (parse_pattern (global_ctx, ctx, ctx->pattern) == -1)
   {
+    hcfree (ctx);
+    global_ctx->gbldata = NULL;
     return false;
-  }
-
-  if (global_ctx->quiet == false)
-  {
-    // Print pattern info (visible via hashcat events/logging)
   }
 
   return true;
