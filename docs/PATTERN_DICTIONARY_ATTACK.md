@@ -47,10 +47,35 @@ hashcat -a 8 -m <hash_type> <hash_file> feeds/feed_pattern_dict.so '<pattern>' <
 | `?d` | Digits | 0-9 (10 chars) |
 | `?s` | Special characters | ` !"#$%&'()*+,-./:;<=>?@[\]^_\`{|}~` (33 chars) |
 | `?a` | All printable ASCII | ?l + ?u + ?d + ?s (95 chars) |
+| `?h` | Hex lowercase | 0-9a-f (16 chars) |
+| `?H` | Hex uppercase | 0-9A-F (16 chars) |
+| `?b` | Binary | 0x00-0xff (256 chars) |
+| `?1` | Custom charset 1 | Defined with `-1` option |
+| `?2` | Custom charset 2 | Defined with `-2` option |
+| `?3` | Custom charset 3 | Defined with `-3` option |
+| `?4` | Custom charset 4 | Defined with `-4` option |
 | `?W` | **Dictionary word** | Words from wordlist |
 | `??` | Literal `?` | Single ? character |
 
 **Important:** Exactly one `?W` placeholder is required in the pattern.
+
+### Custom Charsets
+
+Custom charsets allow you to define your own character sets by combining built-in charsets or specifying literal characters:
+
+```bash
+# Define ?1 as lowercase + digits
+hashcat -a 8 -m 0 hashes.txt feeds/feed_pattern_dict.so -1 '?l?d' '?1?1?W' wordlist.txt
+
+# Define ?1 as vowels only
+hashcat -a 8 -m 0 hashes.txt feeds/feed_pattern_dict.so -1 'aeiouAEIOU' '?1?W?1' wordlist.txt
+
+# Define multiple custom charsets
+hashcat -a 8 -m 0 hashes.txt feeds/feed_pattern_dict.so -1 '?l?d' -2 '!@#$' '?1?W?2' wordlist.txt
+
+# Custom charsets can reference other custom charsets
+hashcat -a 8 -m 0 hashes.txt feeds/feed_pattern_dict.so -1 '?l?u' -2 '?1?d' '?2?W' wordlist.txt
+```
 
 ### Literal Characters
 
@@ -103,6 +128,28 @@ hashcat -a 8 -m 0 hashes.txt feeds/feed_pattern_dict.so '?W@company.com' usernam
 hashcat -a 8 -m 0 hashes.txt feeds/feed_pattern_dict.so '?u?l?W?d?d?s?s' words.txt
 ```
 
+### Example 6: Custom charset - alphanumeric only
+
+```bash
+# Define ?1 as lowercase + digits (no special chars)
+hashcat -a 8 -m 0 hashes.txt feeds/feed_pattern_dict.so -1 '?l?d' '?1?1?W?1?1' words.txt
+```
+
+### Example 7: Custom charset - specific characters
+
+```bash
+# Define ?1 as common password suffixes
+hashcat -a 8 -m 0 hashes.txt feeds/feed_pattern_dict.so -1 '!@#$123' '?W?1?1' words.txt
+```
+
+### Example 8: Binary charset for raw bytes
+
+```bash
+# Use binary charset (?b) for raw byte fuzzing - use with caution, very large keyspace!
+# Generates all 256 byte values at each ?b position
+hashcat -a 8 -m 0 hashes.txt feeds/feed_pattern_dict.so '?b?W?b' words.txt
+```
+
 ## Keyspace Calculation
 
 The total keyspace is calculated as:
@@ -142,6 +189,8 @@ Total = 10 × 10 × 1000 × 33 = **3,300,000 candidates**
 | Mask position | After word | Before word | **Anywhere** |
 | Multiple positions | No | No | **Yes** |
 | Literal chars | No | No | **Yes** |
+| Custom charsets | Yes | Yes | **Yes** |
+| Binary charset | No | No | **Yes** |
 | Flexibility | Limited | Limited | **High** |
 
 ## Use Cases for Penetration Testing
@@ -163,6 +212,22 @@ Patterns with multiple `?W` placeholders are not supported.
 
 ### "Pattern too long"
 Maximum of 32 pattern positions (excluding the word itself).
+
+### "Custom charset ?N not defined"
+You're using `?1`, `?2`, `?3`, or `?4` in your pattern but haven't defined it. Add the corresponding option:
+```bash
+hashcat -a 8 ... feeds/feed_pattern_dict.so -1 '?l?d' '?1?W' wordlist.txt
+```
+
+### "Custom charset ?N referenced before definition"
+When defining custom charsets that reference other custom charsets, define them in order:
+```bash
+# Wrong: -2 references ?1 which isn't defined yet
+feeds/feed_pattern_dict.so -2 '?1?d' -1 '?l?u' ...
+
+# Correct: define -1 before -2
+feeds/feed_pattern_dict.so -1 '?l?u' -2 '?1?d' ...
+```
 
 ### No output with --stdout
 Ensure you have OpenCL/CUDA drivers installed, even for --stdout mode.
